@@ -122,7 +122,10 @@ def convert_jpg_to_png(uploaded_image, input_folder="uploaded"):
 
     # Перевірка, чи вже існує файл у output_path
     if not os.path.exists(output_path):
-        result = subprocess.run(["utils/jpeg2png.exe", input_path], capture_output=True, text=True)
+
+        # jpeg2png_1.02_x64.exe jpeg2png.exe
+        result = subprocess.run(["utils/jpeg2png_1.02_x64.exe", input_path], capture_output=True, text=True) 
+
         if result.returncode != 0:
             raise RuntimeError("Error converting JPEG to PNG: " + result.stderr)
     
