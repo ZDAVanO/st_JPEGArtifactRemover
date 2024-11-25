@@ -12,7 +12,9 @@ import os
 import shutil
 import subprocess
 
+from skimage.restoration import denoise_tv_chambolle
 
+# import zipfile
 
 
 # MARK: Page Config
@@ -26,24 +28,31 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    [data-testid="stSidebarHeader"] {
-        display: none;
-    }
-    [data-testid="stSidebarUserContent"] {
-        padding-top: 1.5rem;
-    }
+
+    # [data-testid="stSidebarHeader"] {
+    #     display: none;
+    # }
+
+    # [data-testid="stSidebarUserContent"] {
+    #     padding-top: 1.5rem;
+    # }
+
     [data-testid="stMainBlockContainer"] {
-        padding-top: 3rem;
+        padding-top: 5rem;
     }
+    
     [data-testid="stAppDeployButton"] {
         display: none;
     }
+
+    # [data-testid="stDecoration"] {
+    #     display: none;
+    # }
+
     </style>
     """,
     unsafe_allow_html=True
 )
-
-
 
 
 
@@ -58,6 +67,8 @@ def unsharp_mask(image, sigma=1.0, strength=1.5):
     sharpened = cv2.addWeighted(image, 1.0 + strength, blurred, -strength, 0)
     return sharpened
 
+
+
 # MARK: laplacian_filter()
 @st.cache_data(show_spinner=False)
 def laplacian_filter(image, sigma=1.0, strength=1.5, kernel_size=(5, 5)):
@@ -66,6 +77,8 @@ def laplacian_filter(image, sigma=1.0, strength=1.5, kernel_size=(5, 5)):
     # Subtract the blurred image from the original
     sharpened = cv2.addWeighted(image, 1.0 + strength, blurred, -strength, 0)
     return sharpened
+
+
 
 # MARK: high_pass_filter()
 @st.cache_data(show_spinner=False)
@@ -77,6 +90,7 @@ def high_pass_filter(image, sigma=1.0):
     # Add the high-pass image back to the original
     sharpened = cv2.addWeighted(image, 1.0, high_pass, 1.0, 0)
     return sharpened
+
 
 
 
@@ -102,6 +116,161 @@ def apply_bilateral_filter(image, d, sigma_color, sigma_space):
 @st.cache_data(show_spinner=False)
 def apply_non_local_means(image, h, template_window_size, search_window_size):
     return cv2.fastNlMeansDenoisingColored(image, None, h, h, template_window_size, search_window_size)
+
+
+
+
+
+# MARK: apply_smoothing_on_gradients()
+@st.cache_data(show_spinner=False)
+def apply_smoothing_on_gradients(img_rgb,
+                                 sobel_ksize=3,             # 3
+                                 gradient_threshold=15,     # 30
+                                 blur_kernel_size=7):       # 7
+    
+    # rbat_col1, rbat_col2, rbat_col3, rbat_col4, rbat_col5 = st.columns(5)
+    rbat_col2, rbat_col4, rbat_col5 = st.columns(3)
+
+    with st.expander("Show apply_smoothing_on_gradients() function steps"):
+
+        # Перетворюємо зображення в відтінки сірого для аналізу текстури та кольору
+        gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+
+
+        # Використовуємо фільтрацію по градієнтах для виявлення зон з плавними переходами
+        # Використовує оператор Sobel для обчислення градієнта зображення по осі X. 
+        # Це означає, що ми будемо вимірювати зміни інтенсивності пікселів по горизонталі.
+        grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_ksize)  # Градієнт по осі X
+        # Це аналогічний оператор Sobel, але для осі Y, що вимірює вертикальні зміни інтенсивності.
+        grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_ksize)  # Градієнт по осі Y
+        # Обчислює модуль градієнтів, який є поєднанням горизонтальних і вертикальних градієнтів. 
+        # Він показує, наскільки різко змінюється інтенсивність пікселів у кожному місці зображення. 
+        # Величина градієнта використовується для виявлення контурів і переходів кольору.
+        grad_mag = cv2.magnitude(grad_x, grad_y)  # Модуль градієнтів
+        
+
+        # Маска для визначення областей з малим градієнтом (де немає різких змін кольору)
+        # Перетворює результат градієнтів в абсолютні значення і конвертує їх в 8-бітовий формат (від 0 до 255)
+        grad_mag = cv2.convertScaleAbs(grad_mag)
+        
+        st.divider()
+        # rbat_col1.image(grad_mag, caption="Gradient Magnitude", use_container_width=True)
+        st.image(grad_mag, caption="Gradient Magnitude")
+
+        # Створює бінарну маску, де значення пікселів, що мають градієнт вище порогу 30, отримують значення 0 (чорний), 
+        # а пікселі з малим градієнтом (які мають плавні переходи) отримують значення 255 (білий)
+
+        _, mask = cv2.threshold(grad_mag, gradient_threshold, 255, cv2.THRESH_BINARY_INV)  # Чим менший поріг, тим більше зон з плавними переходами
+
+
+
+        st.divider()
+        rbat_col2.image(mask, caption="Mask for Smooth Areas", use_container_width=True)
+        st.image(mask, caption="Mask for Smooth Areas (Білим те що розмивається)")
+        
+
+        
+
+
+
+
+        # Визначення відсотка розмитих та нерозмитих ділянок
+        total_pixels = mask.size  # Загальна кількість пікселів (по всьому зображенню)
+        smooth_pixels = cv2.countNonZero(mask)  # Кількість білих пікселів (розмитих)
+        non_smooth_pixels = total_pixels - smooth_pixels  # Кількість чорних пікселів (нерозмитих)
+
+        # Обчислюємо відсоток
+        smooth_percentage = (smooth_pixels / total_pixels) * 100
+        non_smooth_percentage = (non_smooth_pixels / total_pixels) * 100
+
+
+        blur_progress = smooth_percentage / 100
+
+        st.progress(blur_progress)
+        # Виводимо результат
+        st.write(f"Percentage of smoothed area: {smooth_percentage:.2f}%")
+        st.write(f"Percentage of non-smoothed area: {non_smooth_percentage:.2f}%")
+
+
+
+
+        tuple_bks = (blur_kernel_size, blur_kernel_size)
+        # Створюємо розмиту версію зображення для зон з малим градієнтом
+        smoothed_img = cv2.GaussianBlur(img_rgb, tuple_bks, 0)
+
+        # smoothed_img = cv2.medianBlur(img_rgb, blur_kernel_size)
+
+
+
+        st.divider()
+        # rbat_col3.image(smoothed_img, caption="Smoothed Image", use_container_width=True)
+        st.image(smoothed_img, caption="Smoothed Image")
+
+
+        # Застосовуємо маску на розмите зображення для плавних ділянок
+
+        # Застосовує маску до розмитого зображення. Це означає, що згладжування буде застосовано лише до тих ділянок, де маска біла (плавні переходи)
+        smoothed_img_masked = cv2.bitwise_and(smoothed_img, smoothed_img, mask=mask)
+
+        st.divider()
+        rbat_col4.image(smoothed_img_masked, caption="Smoothed Image with Mask", use_container_width=True)
+        st.image(smoothed_img_masked, caption="Smoothed Image with Mask (Частина зображення яка розмивається)")
+
+
+
+
+        # Залишаємо незмінними ділянки з великими градієнтами
+        non_smoothed_img = cv2.bitwise_and(img_rgb, img_rgb, mask=cv2.bitwise_not(mask))
+
+        st.divider()
+        rbat_col5.image(non_smoothed_img, caption="Non-Smoothed Image", use_container_width=True)
+        st.image(non_smoothed_img, caption="Non-Smoothed Image (Частина зображення яка не змінюється)")
+
+
+
+        # Об'єднуємо результат: плавні зони з розмиттям, інші з без змін
+        final_img = cv2.add(smoothed_img_masked, non_smoothed_img)
+
+
+
+    return final_img 
+
+
+
+
+
+# MARK: apply_denoise_tv_chambolle()
+@st.cache_data(show_spinner=False)
+def apply_denoise_tv_chambolle(image, weight=0.01):
+
+    # Розділення зображення на канали
+    channels = cv2.split(image)
+
+    # Виконання Total Variation Denoising для кожного каналу
+    denoised_channels = [denoise_tv_chambolle(channel, weight=weight) for channel in channels]
+
+    # denoised_channels = []
+    # for channel in channels:
+    #     denoised_channel = denoise_tv_chambolle(channel, weight=0.1)
+    #     denoised_channels.append(denoised_channel)
+
+
+
+    # Перетворення каналів до формату uint8
+    denoised_channels = [(channel * 255).astype(np.uint8) for channel in denoised_channels]
+
+    # for channel in denoised_channels:
+    #     denoised_channel = (channel * 255).astype(np.uint8)
+    #     denoised_channels.append(denoised_channel)
+
+
+
+    # Об'єднання каналів назад в кольорове зображення
+    tv_denoised_image = cv2.merge(denoised_channels)
+    
+    return tv_denoised_image
+
+
 
 
 
@@ -139,10 +308,13 @@ def convert_jpg_to_png(uploaded_image, input_folder="uploaded"):
 
 
 
+# MARK: Filter Functions
 filter_functions = {
     "Median Blur": apply_median_blur,
     "Bilateral Filter": apply_bilateral_filter,
-    "Non-Local Means Denoising": apply_non_local_means
+    "Non-Local Means Denoising": apply_non_local_means,
+    "Smoothing on Gradients": apply_smoothing_on_gradients,
+    "Denoise TV Chambolle": apply_denoise_tv_chambolle,
 }
 
 
@@ -159,9 +331,10 @@ if "detail_info" not in st.session_state:
 
 
 # MARK: Sidebar
-uploaded_image = st.sidebar.file_uploader("Upload an image", 
+uploaded_images = st.sidebar.file_uploader("Upload an image", 
                                           type=["jpg", "jpeg"],
-                                          label_visibility="collapsed")
+                                          label_visibility="collapsed",
+                                          accept_multiple_files=True)
 
 
 # MARK: Crop Image
@@ -184,6 +357,9 @@ with st.sidebar.expander("Crop Image", expanded=False, icon="🔍"):
         selection_mode="single", 
         default="Center",
     )
+
+
+
 
 
 # MARK: Filtering
@@ -297,6 +473,110 @@ with st.sidebar.expander(f"{list(filter_functions.keys())[2]} Settings",
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+with st.sidebar.expander(f"{list(filter_functions.keys())[3]} Settings", 
+                        icon=None, 
+                        expanded=list(filter_functions.keys())[3] in filtering_methods):
+
+    sobel_ksize = st.slider(
+        label="Sobel Kernel Size", 
+        min_value=1,
+        max_value=31,
+        value=3, 
+        step=2,
+        disabled=list(filter_functions.keys())[3] not in filtering_methods,
+        help="Цей параметр визначає розмір ядра, яке використовується для обчислення градієнтів по осі X та Y.")
+    
+    gradient_threshold = st.slider(
+        label="Gradient Threshold", 
+        min_value=0,
+        max_value=254,
+        value=30, 
+        step=1,
+        disabled=list(filter_functions.keys())[3] not in filtering_methods,
+        help="Цей параметр визначає поріг, за яким визначається яку частину зображення розмивати.")
+    
+    blur_kernel_size = st.slider(
+        label="Blur Kernel Size",
+        min_value=1,
+        max_value=99, 
+        value=7, 
+        step=2,
+        disabled=list(filter_functions.keys())[3] not in filtering_methods,
+        help="Цей параметр визначає розмір ядра, яке використовується для розмиття зображення для зон з малим градієнтом.")
+
+
+
+    if st.session_state.detail_info:
+        with st.popover(label="info", icon="ℹ️", use_container_width=True):
+            st.text("1")
+
+
+
+
+
+
+
+
+
+
+with st.sidebar.expander(f"{list(filter_functions.keys())[4]} Settings", 
+                        icon=None, 
+                        expanded=list(filter_functions.keys())[4] in filtering_methods):
+                        
+    weight = st.slider(
+        label="Weight", 
+        min_value=0.01, 
+        max_value=0.15, 
+        value=0.03, 
+        step=0.01,
+        disabled=list(filter_functions.keys())[4] not in filtering_methods,
+        help="Цей параметр визначає вагу, яка використовується для обчислення ваги пікселя в просторі кольорів.")
+
+
+    # esp = st.number_input(
+    #     label="esp", 
+    #     value=0.0002, 
+    #     step=0.0001,
+    #     help="поріг для зупинки алгоритму. Коли зміни між двома ітераціями стають меншими за це значення (тобто, зміни стають дуже малими і алгоритм більше не покращує результат), то алгоритм припиняється.")
+    
+    # max_num_iter = st.number_input( 
+    #     label="max_num_iter", 
+    #     value=200, 
+    #     step=10,
+    #     help="Цей параметр вказує максимальну кількість ітерацій, які алгоритм може виконати під час оптимізації.")
+
+
+
+    if st.session_state.detail_info:
+        with st.popover(label="info", icon="ℹ️", use_container_width=True):
+            st.text("1")
+
+
+
+
+
+
 # MARK: Sharpening
 st.sidebar.subheader("Sharpening", divider="gray")
 
@@ -355,138 +635,178 @@ with st.sidebar.expander(
 
 
 
-st.sidebar.subheader("About image", divider="gray")
 
 
 # MARK: Обробка
-if uploaded_image is None:
+# if uploaded_image is None:
+if not uploaded_images:
     st.header("⬅️ Upload an image to get started", divider=False)
 
     st.sidebar.write("Upload an image first.")
 else:
 
+    # zip_buffer = BytesIO()
+    # with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
     
-
-    # Читання зображення як PIL Image, конвертація до формату OpenCV
-    image = Image.open(uploaded_image)
-
-    width, height = image.size
-    st.sidebar.write(f"Resolution: **`{width} x {height} px`**")
-
-    original_size_kb = len(uploaded_image.getbuffer()) / 1024
-    st.sidebar.write(f"Original image size: **`{round(original_size_kb, 2)} KB`**")
-
-    image_np = np.array(image)
+    for uploaded_image in uploaded_images:
+        
+        file_name = uploaded_image.name
+        processed_file_name = file_name.replace(".jpg", ".png")
 
 
-    processed_image = image_np  # Початкове зображення, на яке накладаються фільтри
-
-    if jpg_to_png_toggle:
-        processed_image = convert_jpg_to_png(uploaded_image)
+        st.subheader(f"**`{file_name}`**", divider="gray")
 
 
-    # Перевіряємо, чи вибрано кілька фільтрів і застосовуємо їх по черзі
-    for method in filtering_methods:
-        if method == list(filter_functions.keys())[0]:
-            processed_image = apply_median_blur(processed_image, ksize)
-        elif method == list(filter_functions.keys())[1]:
-            processed_image = apply_bilateral_filter(processed_image, d, sigma_color, sigma_space)
-        elif method == list(filter_functions.keys())[2]:
-            processed_image = apply_non_local_means(processed_image, h, template_window_size, search_window_size)
+        # Читання зображення як PIL Image, конвертація до формату OpenCV
+        image = Image.open(uploaded_image)
+
+        
+        width, height = image.size
+        
+
+        original_size_kb = len(uploaded_image.getbuffer()) / 1024
+        
+
+        image_np = np.array(image)
 
 
-    # Застосування sharpening, якщо вибрано
-    if sharpen_method == "Unsharp Masking":
-        processed_image = unsharp_mask(processed_image, sigma=sharpen_sigma, strength=sharpen_strength)
-    elif sharpen_method == "Laplacian Filter":
-        processed_image = laplacian_filter(processed_image, sigma=sharpen_sigma, strength=sharpen_strength, kernel_size=(sharpen_kernel_size, sharpen_kernel_size))
-    elif sharpen_method == "High-Pass Filter":
-        processed_image = high_pass_filter(processed_image, sigma=sharpen_sigma)
+        processed_image = image_np  # Початкове зображення, на яке накладаються фільтри
+
+        if jpg_to_png_toggle:
+            processed_image = convert_jpg_to_png(uploaded_image)
+
+
+        # Перевіряємо, чи вибрано кілька фільтрів і застосовуємо їх по черзі
+        for method in filtering_methods:
+            if method == list(filter_functions.keys())[0]:
+                processed_image = apply_median_blur(processed_image, ksize)
+            elif method == list(filter_functions.keys())[1]:
+                processed_image = apply_bilateral_filter(processed_image, d, sigma_color, sigma_space)
+            elif method == list(filter_functions.keys())[2]:
+                processed_image = apply_non_local_means(processed_image, h, template_window_size, search_window_size)
+            elif method == list(filter_functions.keys())[3]:
+                processed_image = apply_smoothing_on_gradients(processed_image, sobel_ksize, gradient_threshold, blur_kernel_size)
+            elif method == list(filter_functions.keys())[4]:
+                processed_image = apply_denoise_tv_chambolle(processed_image, weight=weight)
 
 
 
-    result_image = Image.fromarray(processed_image)
+        # Застосування sharpening, якщо вибрано
+        if sharpen_method == "Unsharp Masking":
+            processed_image = unsharp_mask(processed_image, sigma=sharpen_sigma, strength=sharpen_strength)
+        elif sharpen_method == "Laplacian Filter":
+            processed_image = laplacian_filter(processed_image, sigma=sharpen_sigma, strength=sharpen_strength, kernel_size=(sharpen_kernel_size, sharpen_kernel_size))
+        elif sharpen_method == "High-Pass Filter":
+            processed_image = high_pass_filter(processed_image, sigma=sharpen_sigma)
 
 
-    # Розрахунок координат для кропу на основі вибраного масштабу та позиції
-    width, height = image.size
-    crop_width, crop_height = int(width * crop_scale / 100), int(height * crop_scale / 100)
-    
-    if crop_position == "Center":
-        left = (width - crop_width) // 2
-        upper = (height - crop_height) // 2
-    elif crop_position == "Top-Left":
-        left, upper = 0, 0
-    elif crop_position == "Top-Right":
-        left, upper = width - crop_width, 0
-    elif crop_position == "Bottom-Left":
-        left, upper = 0, height - crop_height
-    elif crop_position == "Bottom-Right":
-        left, upper = width - crop_width, height - crop_height
-    
-    right = left + crop_width
-    lower = upper + crop_height
-    crop_box = (left, upper, right, lower)
 
-    # Кроп оригіналу та обробленого зображення
-    original_crop = image.crop(crop_box)
-    processed_crop = result_image.crop(crop_box)
+        result_image = Image.fromarray(processed_image)
 
 
-    # MARK: Вивід результатів
-    col1, col2 = st.columns(2)
+        # Розрахунок координат для кропу на основі вибраного масштабу та позиції
+        width, height = image.size
+        crop_width, crop_height = int(width * crop_scale / 100), int(height * crop_scale / 100)
+        
+        if crop_position == "Center":
+            left = (width - crop_width) // 2
+            upper = (height - crop_height) // 2
+        elif crop_position == "Top-Left":
+            left, upper = 0, 0
+        elif crop_position == "Top-Right":
+            left, upper = width - crop_width, 0
+        elif crop_position == "Bottom-Left":
+            left, upper = 0, height - crop_height
+        elif crop_position == "Bottom-Right":
+            left, upper = width - crop_width, height - crop_height
+        
+        right = left + crop_width
+        lower = upper + crop_height
+        crop_box = (left, upper, right, lower)
 
-    with col1:
-        # with st.container(border=True):
-        st.subheader("Original Image:")
-        # st.image(image, use_container_width=True)
-        st.image(original_crop, use_container_width=True)
-
-    with col2:
-        # with st.container(border=True):
-        st.subheader("Processed Image:")
-        # st.image(sharpened_image, use_container_width=True)
-        st.image(processed_crop, use_container_width=True)
+        # Кроп оригіналу та обробленого зображення
+        original_crop = image.crop(crop_box)
+        processed_crop = result_image.crop(crop_box)
 
 
-        # MARK: Кнопка збереження
+
+
         buffered = BytesIO()
         result_image.save(buffered, format="PNG")
         img_data = buffered.getvalue()
 
         processed_size_kb = len(img_data) / 1024
         size_difference = processed_size_kb / original_size_kb
-        st.sidebar.write(f"Processed image size: **`{str(round(processed_size_kb, 2))} KB`** ") 
-        st.sidebar.write(f"Processed image takes **`{round(size_difference, 1)}`** times more space")
-
-        # Додати кнопку для завантаження обробленого зображення
-        st.download_button(
-            label="Save Image",
-            data=img_data,
-            file_name="processed_image.png",
-            mime="image/png",
-            icon="⬇️",
-            use_container_width=True
-        )
 
 
+        
+        # Додаємо до архіву
+        # zip_file.writestr(processed_file_name, img_data)
 
 
+        # MARK: Вивід результатів
+        col1, col2 = st.columns(2)
 
-# MARK: Other Settings
-st.sidebar.subheader("Other Settings", divider="gray")
+        with col1:
+            # with st.container(border=True):
+            st.subheader(f"Original Image:")
+            # st.image(image, use_container_width=True)
+            st.image(original_crop, use_container_width=True)
 
-if st.sidebar.button(
-    label="Clear jpeg smooth decoding cache", 
-    icon="🧹"
-    ): 
+            with st.popover(label=f"Details (About)", icon="ℹ️", use_container_width=True):
 
-    shutil.rmtree("uploaded", ignore_errors=True)
-    st.sidebar.write("Cache cleared successfully!")
+                st.write(f"Resolution: **`{width} x {height} px`**")
+                st.write(f"Original image size: **`{round(original_size_kb, 2)} KB`**")
+
+                st.write(f"Processed image size: **`{str(round(processed_size_kb, 2))} KB`** ") 
+                st.write(f"Processed image takes **`{round(size_difference, 1)}`** times more space")
 
 
-if st.sidebar.button(f"Show Detail Info `{st.session_state.detail_info}`"):
+        with col2:
+            # with st.container(border=True):
+            st.subheader("Processed Image:")
+            # st.image(sharpened_image, use_container_width=True)
+            st.image(processed_crop, use_container_width=True)
 
-    st.session_state.detail_info = not st.session_state.detail_info
-    st.rerun()
-    
+
+            # MARK: Кнопка збереження
+            st.download_button(
+                label=f"Save Image **`{processed_file_name}`**",
+                data=img_data,
+                file_name=processed_file_name,
+                mime="image/png",
+                icon="⬇️",
+                use_container_width=True,
+                key=processed_file_name
+            )
+        
+
+
+    # zip_buffer.seek(0)  # Переміщуємо вказівник на початок
+    # # Кнопка завантаження архіву
+    # st.sidebar.download_button(
+    #     label="Download All Images as ZIP",
+    #     data=zip_buffer,
+    #     file_name="processed_images.zip",
+    #     mime="application/zip",
+    #     icon="⬇️"
+    # )
+
+
+    # MARK: Other Settings
+    st.sidebar.subheader("Other Settings", divider="gray")
+
+    if st.sidebar.button(
+        label="Clear jpeg smooth decoding cache", 
+        icon="🧹"
+        ): 
+
+        shutil.rmtree("uploaded", ignore_errors=True)
+        st.sidebar.write("Cache cleared successfully!")
+
+
+    if st.sidebar.button(f"Show Detail Info `{st.session_state.detail_info}`"):
+
+        st.session_state.detail_info = not st.session_state.detail_info
+        st.rerun()
+        
