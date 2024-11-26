@@ -1,20 +1,16 @@
 import streamlit as st
-# from streamlit_image_comparison import image_comparison
-
+from streamlit_image_comparison import image_comparison
 import cv2
-
 from PIL import Image
 import numpy as np
-
 from io import BytesIO
-
 import os
 import shutil
 import subprocess
-
 from skimage.restoration import denoise_tv_chambolle
-
 # import zipfile
+
+import time
 
 
 # MARK: Page Config
@@ -23,7 +19,6 @@ st.set_page_config(
     page_icon="🔍",
     layout="wide"
 )
-
 
 st.markdown(
     """
@@ -55,9 +50,6 @@ st.markdown(
 )
 
 
-
-
-
 # MARK: unsharp_mask()
 @st.cache_data(show_spinner=False)
 def unsharp_mask(image, sigma=1.0, strength=1.5):
@@ -66,7 +58,6 @@ def unsharp_mask(image, sigma=1.0, strength=1.5):
     # Subtract the blurred image from the original
     sharpened = cv2.addWeighted(image, 1.0 + strength, blurred, -strength, 0)
     return sharpened
-
 
 
 # MARK: laplacian_filter()
@@ -79,7 +70,6 @@ def laplacian_filter(image, sigma=1.0, strength=1.5, kernel_size=(5, 5)):
     return sharpened
 
 
-
 # MARK: high_pass_filter()
 @st.cache_data(show_spinner=False)
 def high_pass_filter(image, sigma=1.0):
@@ -90,14 +80,6 @@ def high_pass_filter(image, sigma=1.0):
     # Add the high-pass image back to the original
     sharpened = cv2.addWeighted(image, 1.0, high_pass, 1.0, 0)
     return sharpened
-
-
-
-
-
-
-
-
 
 
 # MARK: apply_median_blur()
@@ -118,9 +100,6 @@ def apply_non_local_means(image, h, template_window_size, search_window_size):
     return cv2.fastNlMeansDenoisingColored(image, None, h, h, template_window_size, search_window_size)
 
 
-
-
-
 # MARK: apply_smoothing_on_gradients()
 @st.cache_data(show_spinner=False)
 def apply_smoothing_on_gradients(img_rgb,
@@ -132,10 +111,8 @@ def apply_smoothing_on_gradients(img_rgb,
     rbat_col2, rbat_col4, rbat_col5 = st.columns(3)
 
     with st.expander("Show apply_smoothing_on_gradients() function steps"):
-
         # Перетворюємо зображення в відтінки сірого для аналізу текстури та кольору
         gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
-
 
         # Використовуємо фільтрацію по градієнтах для виявлення зон з плавними переходами
         # Використовує оператор Sobel для обчислення градієнта зображення по осі X. 
@@ -148,7 +125,6 @@ def apply_smoothing_on_gradients(img_rgb,
         # Величина градієнта використовується для виявлення контурів і переходів кольору.
         grad_mag = cv2.magnitude(grad_x, grad_y)  # Модуль градієнтів
         
-
         # Маска для визначення областей з малим градієнтом (де немає різких змін кольору)
         # Перетворює результат градієнтів в абсолютні значення і конвертує їх в 8-бітовий формат (від 0 до 255)
         grad_mag = cv2.convertScaleAbs(grad_mag)
@@ -159,21 +135,12 @@ def apply_smoothing_on_gradients(img_rgb,
 
         # Створює бінарну маску, де значення пікселів, що мають градієнт вище порогу 30, отримують значення 0 (чорний), 
         # а пікселі з малим градієнтом (які мають плавні переходи) отримують значення 255 (білий)
-
         _, mask = cv2.threshold(grad_mag, gradient_threshold, 255, cv2.THRESH_BINARY_INV)  # Чим менший поріг, тим більше зон з плавними переходами
-
-
 
         st.divider()
         rbat_col2.image(mask, caption="Mask for Smooth Areas", use_container_width=True)
         st.image(mask, caption="Mask for Smooth Areas (Білим те що розмивається)")
         
-
-        
-
-
-
-
         # Визначення відсотка розмитих та нерозмитих ділянок
         total_pixels = mask.size  # Загальна кількість пікселів (по всьому зображенню)
         smooth_pixels = cv2.countNonZero(mask)  # Кількість білих пікселів (розмитих)
@@ -183,31 +150,19 @@ def apply_smoothing_on_gradients(img_rgb,
         smooth_percentage = (smooth_pixels / total_pixels) * 100
         non_smooth_percentage = (non_smooth_pixels / total_pixels) * 100
 
-
         blur_progress = smooth_percentage / 100
 
         st.progress(blur_progress)
-        # Виводимо результат
         st.write(f"Percentage of smoothed area: {smooth_percentage:.2f}%")
         st.write(f"Percentage of non-smoothed area: {non_smooth_percentage:.2f}%")
-
-
-
 
         tuple_bks = (blur_kernel_size, blur_kernel_size)
         # Створюємо розмиту версію зображення для зон з малим градієнтом
         smoothed_img = cv2.GaussianBlur(img_rgb, tuple_bks, 0)
 
-        # smoothed_img = cv2.medianBlur(img_rgb, blur_kernel_size)
-
-
-
         st.divider()
         # rbat_col3.image(smoothed_img, caption="Smoothed Image", use_container_width=True)
         st.image(smoothed_img, caption="Smoothed Image")
-
-
-        # Застосовуємо маску на розмите зображення для плавних ділянок
 
         # Застосовує маску до розмитого зображення. Це означає, що згладжування буде застосовано лише до тих ділянок, де маска біла (плавні переходи)
         smoothed_img_masked = cv2.bitwise_and(smoothed_img, smoothed_img, mask=mask)
@@ -216,9 +171,6 @@ def apply_smoothing_on_gradients(img_rgb,
         rbat_col4.image(smoothed_img_masked, caption="Smoothed Image with Mask", use_container_width=True)
         st.image(smoothed_img_masked, caption="Smoothed Image with Mask (Частина зображення яка розмивається)")
 
-
-
-
         # Залишаємо незмінними ділянки з великими градієнтами
         non_smoothed_img = cv2.bitwise_and(img_rgb, img_rgb, mask=cv2.bitwise_not(mask))
 
@@ -226,17 +178,10 @@ def apply_smoothing_on_gradients(img_rgb,
         rbat_col5.image(non_smoothed_img, caption="Non-Smoothed Image", use_container_width=True)
         st.image(non_smoothed_img, caption="Non-Smoothed Image (Частина зображення яка не змінюється)")
 
-
-
         # Об'єднуємо результат: плавні зони з розмиттям, інші з без змін
         final_img = cv2.add(smoothed_img_masked, non_smoothed_img)
 
-
-
     return final_img 
-
-
-
 
 
 # MARK: apply_denoise_tv_chambolle()
@@ -249,30 +194,13 @@ def apply_denoise_tv_chambolle(image, weight=0.01):
     # Виконання Total Variation Denoising для кожного каналу
     denoised_channels = [denoise_tv_chambolle(channel, weight=weight) for channel in channels]
 
-    # denoised_channels = []
-    # for channel in channels:
-    #     denoised_channel = denoise_tv_chambolle(channel, weight=0.1)
-    #     denoised_channels.append(denoised_channel)
-
-
-
     # Перетворення каналів до формату uint8
     denoised_channels = [(channel * 255).astype(np.uint8) for channel in denoised_channels]
-
-    # for channel in denoised_channels:
-    #     denoised_channel = (channel * 255).astype(np.uint8)
-    #     denoised_channels.append(denoised_channel)
-
-
 
     # Об'єднання каналів назад в кольорове зображення
     tv_denoised_image = cv2.merge(denoised_channels)
     
     return tv_denoised_image
-
-
-
-
 
 
 # MARK: convert_jpg_to_png()
@@ -291,7 +219,6 @@ def convert_jpg_to_png(uploaded_image, input_folder="uploaded"):
 
     # Перевірка, чи вже існує файл у output_path
     if not os.path.exists(output_path):
-
         # jpeg2png_1.02_x64.exe jpeg2png.exe
         result = subprocess.run(["utils/jpeg2png_1.02_x64.exe", input_path], capture_output=True, text=True) 
 
@@ -301,11 +228,6 @@ def convert_jpg_to_png(uploaded_image, input_folder="uploaded"):
     # Завантаження PNG-зображення назад у програму
     processed_image = Image.open(output_path).convert("RGB")
     return np.array(processed_image)
-
-
-
-
-
 
 
 # MARK: Filter Functions
@@ -318,16 +240,11 @@ filter_functions = {
 }
 
 
-
-
-
-
 if "detail_info" not in st.session_state:
     st.session_state.detail_info = True
 
-
-
-
+if "image_comparison_toggle" not in st.session_state:
+    st.session_state.image_comparison_toggle = False
 
 
 # MARK: Sidebar
@@ -335,7 +252,6 @@ uploaded_images = st.sidebar.file_uploader("Upload an image",
                                           type=["jpg", "jpeg"],
                                           label_visibility="collapsed",
                                           accept_multiple_files=True)
-
 
 # MARK: Crop Image
 with st.sidebar.expander("Crop Image", expanded=False, icon="🔍"):
@@ -358,10 +274,6 @@ with st.sidebar.expander("Crop Image", expanded=False, icon="🔍"):
         default="Center",
     )
 
-
-
-
-
 # MARK: Filtering
 st.sidebar.subheader("Filtering", divider="gray")
 
@@ -377,7 +289,6 @@ filtering_methods = st.sidebar.multiselect(
 )
 
 
-
 with st.sidebar.expander(f"{list(filter_functions.keys())[0]} Settings", 
                         icon="Ⓜ️", 
                         expanded=list(filter_functions.keys())[0] in filtering_methods):
@@ -391,15 +302,11 @@ with st.sidebar.expander(f"{list(filter_functions.keys())[0]} Settings",
                     help="Цей параметр визначає розмір області, яка буде використовуватись для обчислення медіанного значення для кожного пікселя."
                         " Кожен піксель в результаті буде замінений на медіанне значення з його сусідніх пікселів (в межах розміру ядра).")
 
-
     if st.session_state.detail_info:
         with st.popover(label="Median Blur info", icon="ℹ️", use_container_width=True):
             st.text("Медіанний фільтр — це нелинійний фільтр, який використовується для зменшення шуму на зображенні.\n\n" 
             "Для кожного пікселя обчислюється медіана сусідніх пікселів у вказаному квадратному вікні, і цим значенням замінюється піксель.\n\n" 
             "Це ефективно видаляє шум, зберігаючи краї.")
-
-
-
 
 
 
@@ -431,14 +338,11 @@ with st.sidebar.expander(f"{list(filter_functions.keys())[1]} Settings",
     help="Cтандартне відхилення, яке контролює вплив далеких пікселів на обчислення ваги пікселя."
     "Цей параметр визначає вагу, яка буде використовуватись для обчислення ваги пікселя в просторі пікселів.")
 
-
     if st.session_state.detail_info:
         with st.popover(label="Bilateral Filter info", icon="ℹ️", use_container_width=True):
             st.text("Білатеральний (двосторонній) фільтр — це нелінійний фільтр, який одночасно згладжує зображення і зберігає чіткість країв.\n\n"
             "Він враховує не лише відстань між пікселями, а й різницю їх кольорів, щоб уникати розмиття країв.\n\n"
             "Такий фільтр ідеально підходить для зменшення шуму, не втрачаючи важливих деталей.")
-
-
 
 
 with st.sidebar.expander(f"{list(filter_functions.keys())[2]} Settings", 
@@ -463,35 +367,11 @@ with st.sidebar.expander(f"{list(filter_functions.keys())[2]} Settings",
         step=1,
         help="Цей параметр визначає розмір області, яка буде використовуватись для пошуку схожих пікселів.")
 
-
     if st.session_state.detail_info:
         with st.popover(label="NLM Denoising info", icon="ℹ️", use_container_width=True):
             st.text("Функція fastNlMeansDenoisingColored — це метод усунення шуму, оптимізований для кольорових зображень.\n\n"
             "Вона аналізує схожість пікселів у заданому вікні навколо кожного пікселя та усуває шум, зберігаючи текстуру і деталі.\n\n"
             "Метод ефективно працює на кольорових зображеннях, зменшуючи шум без втрати якості.")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 with st.sidebar.expander(f"{list(filter_functions.keys())[3]} Settings", 
@@ -525,25 +405,15 @@ with st.sidebar.expander(f"{list(filter_functions.keys())[3]} Settings",
         disabled=list(filter_functions.keys())[3] not in filtering_methods,
         help="Цей параметр визначає розмір ядра, яке використовується для розмиття зображення для зон з малим градієнтом.")
 
-
-
     if st.session_state.detail_info:
         with st.popover(label="info", icon="ℹ️", use_container_width=True):
             st.text("1")
 
 
-
-
-
-
-
-
-
-
 with st.sidebar.expander(f"{list(filter_functions.keys())[4]} Settings", 
                         icon=None, 
                         expanded=list(filter_functions.keys())[4] in filtering_methods):
-                        
+
     weight = st.slider(
         label="Weight", 
         min_value=0.01, 
@@ -552,7 +422,6 @@ with st.sidebar.expander(f"{list(filter_functions.keys())[4]} Settings",
         step=0.01,
         disabled=list(filter_functions.keys())[4] not in filtering_methods,
         help="Цей параметр визначає вагу, яка використовується для обчислення ваги пікселя в просторі кольорів.")
-
 
     # esp = st.number_input(
     #     label="esp", 
@@ -566,15 +435,9 @@ with st.sidebar.expander(f"{list(filter_functions.keys())[4]} Settings",
     #     step=10,
     #     help="Цей параметр вказує максимальну кількість ітерацій, які алгоритм може виконати під час оптимізації.")
 
-
-
     if st.session_state.detail_info:
         with st.popover(label="info", icon="ℹ️", use_container_width=True):
             st.text("1")
-
-
-
-
 
 
 # MARK: Sharpening
@@ -626,55 +489,36 @@ with st.sidebar.expander(
             "Фільтр високих частот є ще одним ефективним методом підвищення різкості зображень. Він працює, дозволяючи високочастотним компонентам (краям і деталям) проходити, одночасно ослаблюючи низькочастотні компоненти (гладкі області)."
             )
 
-
-
-
-
-
-
-
-
-
-
-
 # MARK: Обробка
-# if uploaded_image is None:
 if not uploaded_images:
     st.header("⬅️ Upload an image to get started", divider=False)
-
-    st.sidebar.write("Upload an image first.")
 else:
+    # Почати вимірювання часу
+    start_time = time.time()
 
     # zip_buffer = BytesIO()
     # with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-    
+
     for uploaded_image in uploaded_images:
         
         file_name = uploaded_image.name
         processed_file_name = file_name.replace(".jpg", ".png")
 
-
         st.subheader(f"**`{file_name}`**", divider="gray")
-
 
         # Читання зображення як PIL Image, конвертація до формату OpenCV
         image = Image.open(uploaded_image)
-
         
         width, height = image.size
         
-
         original_size_kb = len(uploaded_image.getbuffer()) / 1024
         
-
         image_np = np.array(image)
-
 
         processed_image = image_np  # Початкове зображення, на яке накладаються фільтри
 
         if jpg_to_png_toggle:
             processed_image = convert_jpg_to_png(uploaded_image)
-
 
         # Перевіряємо, чи вибрано кілька фільтрів і застосовуємо їх по черзі
         for method in filtering_methods:
@@ -689,8 +533,6 @@ else:
             elif method == list(filter_functions.keys())[4]:
                 processed_image = apply_denoise_tv_chambolle(processed_image, weight=weight)
 
-
-
         # Застосування sharpening, якщо вибрано
         if sharpen_method == "Unsharp Masking":
             processed_image = unsharp_mask(processed_image, sigma=sharpen_sigma, strength=sharpen_strength)
@@ -699,10 +541,7 @@ else:
         elif sharpen_method == "High-Pass Filter":
             processed_image = high_pass_filter(processed_image, sigma=sharpen_sigma)
 
-
-
         result_image = Image.fromarray(processed_image)
-
 
         # Розрахунок координат для кропу на основі вибраного масштабу та позиції
         width, height = image.size
@@ -728,9 +567,6 @@ else:
         original_crop = image.crop(crop_box)
         processed_crop = result_image.crop(crop_box)
 
-
-
-
         buffered = BytesIO()
         result_image.save(buffered, format="PNG")
         img_data = buffered.getvalue()
@@ -738,49 +574,45 @@ else:
         processed_size_kb = len(img_data) / 1024
         size_difference = processed_size_kb / original_size_kb
 
-
-        
         # Додаємо до архіву
         # zip_file.writestr(processed_file_name, img_data)
 
+        if st.session_state.image_comparison_toggle:
+            image_comparison(original_crop, processed_crop, "Original", "Processed")
 
         # MARK: Вивід результатів
         col1, col2 = st.columns(2)
 
-        with col1:
-            # with st.container(border=True):
-            st.subheader(f"Original Image:")
-            # st.image(image, use_container_width=True)
-            st.image(original_crop, use_container_width=True)
+        if not st.session_state.image_comparison_toggle:
+            col1.subheader(f"Original Image:")
+            col1.image(original_crop, use_container_width=True)
 
-            with st.popover(label=f"Details (About)", icon="ℹ️", use_container_width=True):
+        with col1.popover(label=f"Details (About)", icon="ℹ️", use_container_width=True):
+            st.write(f"Resolution: **`{width} x {height} px`**")
+            st.write(f"Original image size: **`{round(original_size_kb, 2)} KB`**")
+            st.write(f"Processed image size: **`{str(round(processed_size_kb, 2))} KB`** ") 
+            st.write(f"Processed image takes **`{round(size_difference, 1)}`** times more space")
 
-                st.write(f"Resolution: **`{width} x {height} px`**")
-                st.write(f"Original image size: **`{round(original_size_kb, 2)} KB`**")
+        if not st.session_state.image_comparison_toggle:
+            col2.subheader("Processed Image:")
+            col2.image(processed_crop, use_container_width=True)
 
-                st.write(f"Processed image size: **`{str(round(processed_size_kb, 2))} KB`** ") 
-                st.write(f"Processed image takes **`{round(size_difference, 1)}`** times more space")
-
-
-        with col2:
-            # with st.container(border=True):
-            st.subheader("Processed Image:")
-            # st.image(sharpened_image, use_container_width=True)
-            st.image(processed_crop, use_container_width=True)
-
-
-            # MARK: Кнопка збереження
-            st.download_button(
-                label=f"Save Image **`{processed_file_name}`**",
-                data=img_data,
-                file_name=processed_file_name,
-                mime="image/png",
-                icon="⬇️",
-                use_container_width=True,
-                key=processed_file_name
-            )
+        # MARK: Кнопка збереження
+        col2.download_button(
+            label=f"Save Image **`{processed_file_name}`**",
+            data=img_data,
+            file_name=processed_file_name,
+            mime="image/png",
+            icon="⬇️",
+            use_container_width=True,
+            key=processed_file_name
+        )
         
-
+    # Завершення вимірювання часу
+    end_time = time.time()
+    execution_time = end_time - start_time
+    st.sidebar.subheader("Execution Time", divider="gray")
+    st.sidebar.write(f"Execution time: **`{execution_time:.2f} seconds`**")
 
     # zip_buffer.seek(0)  # Переміщуємо вказівник на початок
     # # Кнопка завантаження архіву
@@ -793,20 +625,20 @@ else:
     # )
 
 
-    # MARK: Other Settings
-    st.sidebar.subheader("Other Settings", divider="gray")
+# MARK: Other Settings
+st.sidebar.subheader("Other Settings", divider="gray")
 
-    if st.sidebar.button(
-        label="Clear jpeg smooth decoding cache", 
-        icon="🧹"
-        ): 
+if st.sidebar.button(
+    label="Clear jpeg smooth decoding cache", 
+    icon="🧹" ): 
+    shutil.rmtree("uploaded", ignore_errors=True)
+    st.sidebar.write("Cache cleared successfully!")
 
-        shutil.rmtree("uploaded", ignore_errors=True)
-        st.sidebar.write("Cache cleared successfully!")
+if st.sidebar.button(f"Show Detail Info `{st.session_state.detail_info}`"):
+    st.session_state.detail_info = not st.session_state.detail_info
+    st.rerun()
 
-
-    if st.sidebar.button(f"Show Detail Info `{st.session_state.detail_info}`"):
-
-        st.session_state.detail_info = not st.session_state.detail_info
-        st.rerun()
+if st.sidebar.button(f"Toggle Image Comparison `{st.session_state.image_comparison_toggle}`"):
+    st.session_state.image_comparison_toggle = not st.session_state.image_comparison_toggle
+    st.rerun()
         
