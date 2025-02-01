@@ -15,7 +15,7 @@ import time
 
 # MARK: Page Config
 st.set_page_config(
-    page_title="OSZ Coursework",
+    page_title="JPEGArtifactRemover",
     page_icon="🔍",
     layout="wide"
 )
